@@ -1,0 +1,69 @@
+version: "3.8"
+
+# Shared volume for app logs — both demo-api and filebeat mount it
+volumes:
+  app-logs:
+  graylog-data:
+  mongo-data:
+  opensearch-data:
+
+services:
+
+  # ── Spring Boot API ──────────────────────────────────────────────────────────
+  demo-api:
+    build: .
+    container_name: demo-api
+    ports:
+      - "8080:8080"
+    volumes:
+      - app-logs:/var/log/demo   # write logs here
+
+  # ── Filebeat ─────────────────────────────────────────────────────────────────
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.13.0
+    container_name: filebeat
+    user: root                   # needed to read log files
+    volumes:
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+      - app-logs:/var/log/demo:ro
+    depends_on:
+      - demo-api
+      - graylog
+
+  # ── MongoDB (Graylog metadata) ────────────────────────────────────────────────
+  mongo:
+    image: mongo:6
+    container_name: mongo
+    volumes:
+      - mongo-data:/data/db
+
+  # ── OpenSearch (Graylog index backend) ───────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.12.0
+    container_name: opensearch
+    environment:
+      - discovery.type=single-node
+      - DISABLE_SECURITY_PLUGIN=true
+      - "OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m"
+    volumes:
+      - opensearch-data:/usr/share/opensearch/data
+
+  # ── Graylog ───────────────────────────────────────────────────────────────────
+  graylog:
+    image: graylog/graylog:6.0
+    container_name: graylog
+    environment:
+      - GRAYLOG_PASSWORD_SECRET=replacethiswithatleast16chars
+      - GRAYLOG_ROOT_PASSWORD_SHA2=8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918
+      # ^^^ SHA2 of "admin" — change in production
+      - GRAYLOG_HTTP_EXTERNAL_URI=http://localhost:9000/
+      - GRAYLOG_ELASTICSEARCH_HOSTS=http://opensearch:9200
+      - GRAYLOG_MONGODB_URI=mongodb://mongo:27017/graylog
+    ports:
+      - "9000:9000"    # Graylog web UI
+      - "5044:5044"    # Beats input (Filebeat → Graylog)
+    volumes:
+      - graylog-data:/usr/share/graylog/data
+    depends_on:
+      - mongo
+      - opensearch

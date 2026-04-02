@@ -1,0 +1,13 @@
+filebeat.inputs:
+  - type: log
+    enabled: true
+    paths:
+      - /var/log/demo/app.log
+    fields:
+      app: demo-api
+    fields_under_root: true
+
+output.logstash:
+  hosts: ["graylog:5044"]   # Graylog Beats input port
+
+logging.level: info

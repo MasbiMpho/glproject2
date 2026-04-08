@@ -31,14 +31,25 @@
 #   name: filebeat.log
 #   keepfiles: 3
 
-filebeat.inputs:
-  - type: log
-    paths:
-      - /logs/*.log
-    fields:
-      service: nameapi
-    fields_under_root: true
+# filebeat.inputs:
+#   - type: log
+#     paths:
+#       - /logs/*.log
+#     fields:
+#       service: nameapi
+#     fields_under_root: true
 
-output.gelf:
-  host: "graylog"
-  port: 12201
+# output.gelf:
+#   host: "graylog"
+#   port: 12201
+
+filebeat.inputs:
+- type: filestream
+  id: nameapi-logs
+  enabled: true
+  paths:
+    - /logs/*.log # Matches the volume mapping from NameAPI
+
+output.logstash:
+  # Graylog natively accepts Beats format via the Logstash output
+  hosts: ["graylog:5044"]

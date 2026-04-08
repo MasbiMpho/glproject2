@@ -1,0 +1,44 @@
+# # filebeat/filebeat.yml
+# # Filebeat reads the app log file and ships to Graylog via GELF UDP
+
+# filebeat.inputs:
+#   - type: log
+#     enabled: true
+#     paths:
+#       - /var/log/nameapi/app.log
+#     fields:
+#       app: nameapi
+#       environment: local
+#     fields_under_root: true
+#     multiline:
+#       # Treat lines not starting with a date as continuation of previous line
+#       pattern: '^\d{4}-\d{2}-\d{2}'
+#       negate: true
+#       match: after
+
+# output.logstash:
+#   # Graylog has a Beats input on port 5044
+#   hosts: ["graylog:5044"]
+
+# # Alternatively, send directly as GELF UDP (uncomment to use instead of Beats):
+# # output.elasticsearch:
+# #   hosts: ["http://graylog:9200"]
+
+# logging.level: info
+# logging.to_files: true
+# logging.files:
+#   path: /var/log/filebeat
+#   name: filebeat.log
+#   keepfiles: 3
+
+filebeat.inputs:
+  - type: log
+    paths:
+      - /logs/*.log
+    fields:
+      service: nameapi
+    fields_under_root: true
+
+output.gelf:
+  host: "graylog"
+  port: 12201

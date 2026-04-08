@@ -1,0 +1,187 @@
+# version: "3.9"
+
+# # ─────────────────────────────────────────────────────────────
+# # NameApi full stack
+# # Run with:  podman-compose up -d
+# # Tear down: podman-compose down -v
+# # ─────────────────────────────────────────────────────────────
+
+# networks:
+#   nameapi-net:
+#     driver: bridge
+#   graylog-net:
+#     driver: bridge
+
+# volumes:
+#   postgres-data:
+#   app-logs:          # shared between NameApi and Filebeat
+#   graylog-data:
+#   mongo-data:
+#   opensearch-data:
+
+# services:
+
+#   # ── PostgreSQL ─────────────────────────────────────────
+#   postgres:
+#     image: docker.io/postgres:15-alpine
+#     container_name: nameapi-postgres
+#     environment:
+#       POSTGRES_DB: namedb
+#       POSTGRES_USER: nameapi
+#       POSTGRES_PASSWORD: nameapi123
+#     volumes:
+#       - postgres-data:/var/lib/postgresql/data
+#     networks:
+#       - nameapi-net
+#     healthcheck:
+#       test: ["CMD-SHELL", "pg_isready -U nameapi -d namedb"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   # ── NameApi Spring Boot App ────────────────────────────
+#   nameapi:
+#     build:
+#       context: .
+#       dockerfile: Dockerfile
+#     image: localhost/nameapi:latest
+#     container_name: nameapi-app
+#     ports:
+#       - "8080:8080"
+#     environment:
+#       DB_HOST: postgres
+#       DB_PORT: 5432
+#       DB_NAME: namedb
+#       DB_USER: nameapi
+#       DB_PASS: nameapi123
+#     volumes:
+#       - app-logs:/var/log/nameapi      # logs shared with Filebeat
+#     networks:
+#       - nameapi-net
+#     depends_on:
+#       postgres:
+#         condition: service_healthy
+
+#   # ── Filebeat ──────────────────────────────────────────
+#   filebeat:
+#     image: docker.io/elastic/filebeat:8.13.4
+#     container_name: nameapi-filebeat
+#     user: root                          # needed to read log files
+#     volumes:
+#       - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+#       - app-logs:/var/log/nameapi:ro   # read-only access to app logs
+#     networks:
+#       - nameapi-net
+#       - graylog-net
+#     depends_on:
+#       - nameapi
+#       - graylog
+
+#   # ── MongoDB (Graylog config store) ────────────────────
+#   mongo:
+#     image: docker.io/mongo:6
+#     container_name: graylog-mongo
+#     volumes:
+#       - mongo-data:/data/db
+#     networks:
+#       - graylog-net
+
+#   # ── OpenSearch (Graylog index store) ──────────────────
+#   opensearch:
+#     image: docker.io/opensearchproject/opensearch:2.12.0
+#     container_name: graylog-opensearch
+#     environment:
+#       - discovery.type=single-node
+#       - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+#       - bootstrap.memory_lock=true
+#       - DISABLE_SECURITY_PLUGIN=true
+#     ulimits:
+#       memlock:
+#         soft: -1
+#         hard: -1
+#     volumes:
+#       - opensearch-data:/usr/share/opensearch/data
+#     networks:
+#       - graylog-net
+
+#   # ── Graylog ───────────────────────────────────────────
+#   graylog:
+#     image: docker.io/graylog/graylog:5.2
+#     container_name: graylog
+#     environment:
+#       # Change this to a 96-char secret in production:
+#       GRAYLOG_PASSWORD_SECRET: "somepasswordpepper1234567890abcdefghijklmnopqrstuvwxyz1234567890abcd"
+#       # SHA2 of "admin" — change for production
+#       GRAYLOG_ROOT_PASSWORD_SHA2: "8c6976e5b5410415bde908bd4dee15dfb167a9c873fc4bb8a81f6f2ab448a918"
+#       GRAYLOG_HTTP_EXTERNAL_URI: "http://127.0.0.1:9000/"
+#       GRAYLOG_ELASTICSEARCH_HOSTS: "http://opensearch:9200"
+#       GRAYLOG_MONGODB_URI: "mongodb://mongo:27017/graylog"
+#     ports:
+#       - "9000:9000"      # Graylog web UI
+#       - "5044:5044"      # Beats input (Filebeat → Graylog)
+#       - "12201:12201/udp" # GELF UDP (optional direct input)
+#     networks:
+#       - graylog-net
+#     depends_on:
+#       - mongo
+#       - opensearch
+#     healthcheck:
+#       test: ["CMD", "curl", "-f", "http://localhost:9000/api/system/lbstatus"]
+#       interval: 30s
+#       timeout: 10s
+#       retries: 10
+
+version: "3.8"
+
+services:
+
+  nameapi:
+    build: .
+    image: nameapi:latest
+    container_name: nameapi
+    ports:
+      - "8080:8080"
+    volumes:
+      - nameapi-logs:/logs
+    depends_on:
+      - graylog
+
+  filebeat:
+    image: docker.elastic.co/beats/filebeat:8.13.4
+    container_name: filebeat
+    user: root
+    volumes:
+      - nameapi-logs:/logs:ro
+      - ./filebeat/filebeat.yml:/usr/share/filebeat/filebeat.yml:ro
+    depends_on:
+      - graylog
+    command: ["filebeat", "-e"]
+
+  mongo:
+    image: mongo:6
+    container_name: mongo
+
+  opensearch:
+    image: opensearchproject/opensearch:2
+    container_name: opensearch
+    environment:
+      - discovery.type=single-node
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+
+  graylog:
+    image: graylog/graylog:6.0
+    container_name: graylog
+    depends_on:
+      - mongo
+      - opensearch
+    ports:
+      - "9000:9000"
+      - "12201:12201/udp"
+    environment:
+      GRAYLOG_HTTP_EXTERNAL_URI: "http://localhost:9000/"
+
+volumes:
+  nameapi-logs:
